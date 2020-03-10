@@ -169,13 +169,13 @@ UM_EXPORT_METHOD_AS(completeApplePayRequest, completeApplePayRequest:(UMPromiseR
     }
 }
 
-UM_EXPORT_METHOD_AS(cancelApplePayRequest, cancelApplePayRequest:(UMPromiseResolveBlock)resolve
+UM_EXPORT_METHOD_AS(cancelApplePayRequestAsync, cancelApplePayRequest:(UMPromiseResolveBlock)resolve
                     rejecter:(UMPromiseRejectBlock)reject) {
     if (applePayCompletion) {
         promiseResolver = resolve;
         [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
     } else {
-        resolve(nil);
+      resolve(nil);
     }
 }
 
@@ -386,6 +386,7 @@ UM_EXPORT_METHOD_AS(paymentRequestWithCardForm, paymentRequestWithCardForm:(NSDi
     navigationController.navigationBar.stp_theme = theme;
     [[self getViewController] presentViewController:navigationController animated:YES completion:nil];
 }
+
 
 UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSArray *)items
                     withOptions:(NSDictionary *)options
@@ -663,6 +664,8 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     applePayCompletion = completion;
     
     STPAPIClient *stripeAPIClient = [self newAPIClient];
+  
+  @try {
     
     [stripeAPIClient createTokenWithPayment:payment completion:^(STPToken * _Nullable token, NSError * _Nullable error) {
         requestIsCompleted = YES;
@@ -685,6 +688,17 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
             [self resolvePromise:result];
         }
     }];
+  }
+  @catch (NSException *exception) {
+    // prod mode: createTokenWithPayment will throw an exception complaining about the stripe key
+    applePayStripeError = exception;
+    [[self getViewController] dismissViewControllerAnimated:YES completion:^{
+      [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
+      [self rejectPromiseWithCode:exception.name message:exception.reason];
+      [self resetPromiseCallbacks];
+      requestIsCompleted = YES;
+    }];
+  }
 }
 
 
@@ -732,6 +746,8 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 -(void)setShippingAddress:(NSDictionary *)address onCart:(NSString *)cartId{
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
     setShippingAddressVariables[@"shippingAddress"] = shippingAddress;
+    // backend will not update the database with this partial address with if context variable is present in the payload
+    setShippingAddressVariables[@"context"] = @"TAX_CALCULATION";
     [self callGraphqlApiWithQuery:setShippingAddressQuery andVariables:setShippingAddressVariables];
 }
 
@@ -778,7 +794,6 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
             self->cartId = twoStepBuyResponse[@"id"];
             price = twoStepBuyResponse[@"price"];
         }
-        // if one of these fields city, state or zipcode is entered wrong the taxedPrice will come back as null from the backend
         NSNumber *tax = [NSNumber numberWithFloat:([ (price[@"taxedPrice"] == [NSNull null] ? price[@"totalPrice"]: price[@"taxedPrice"]) floatValue]- [ price[@"totalPrice"] floatValue])/100];
         [self updateTaxes:tax];
     }];
