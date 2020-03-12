@@ -769,6 +769,7 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
                                                        timeoutInterval:60.0];
     [request addValue:graphqlGatewayUrl forHTTPHeaderField:@"Origin"];
     [request addValue:graphqlHeaders[@"fwid"] forHTTPHeaderField:@"fwid"];
+    [request addValue:graphqlHeaders[@"idToken"] forHTTPHeaderField:@"authorization"];
     
     [request addValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
     [request addValue:@"application/json" forHTTPHeaderField:@"Accept"];
@@ -782,7 +783,21 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     NSData *postData = [NSJSONSerialization dataWithJSONObject:requestData options:0 error:nil];
     [request setHTTPBody:postData];
     NSURLSessionDataTask *postDataTask = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
+        // if there are any failures in the api this will be capture in sentry
+        if (error || json[@"errors"]) {
+          [[self getViewController] dismissViewControllerAnimated:YES completion:^{
+               [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
+               [self
+                rejectPromiseWithCode:@""
+                message:[[NSString alloc] initWithData:(error ? error.localizedDescription : data) encoding:NSUTF8StringEncoding]];
+               [self resetPromiseCallbacks];
+               requestIsCompleted = YES;
+             }];
+          return;
+        }
+      
         NSDictionary *price;
         if(self->cartId.length != 0) {
             // parse setShippingAddressAPIResponse
