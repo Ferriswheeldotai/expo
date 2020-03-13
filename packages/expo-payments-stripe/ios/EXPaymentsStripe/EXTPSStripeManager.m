@@ -74,8 +74,8 @@ NSString * const TPSPaymentNetworkVisa = @"visa";
     NSString *createCartQuery;
     NSMutableDictionary *createCartVariables;
     
-    NSString *setShippingAddressQuery;
-    NSMutableDictionary *setShippingAddressVariables;
+    NSString *estimateCartTaxesQuery;
+    NSMutableDictionary *estimateCartTaxesVariables;
 }
 
 - (instancetype)init {
@@ -419,9 +419,9 @@ UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSAr
     graphqlHeaders = taxComputationAPIParams[@"headers"];
     createCartQuery = taxComputationAPIParams[@"createCartQuery"];
     createCartVariables = [NSMutableDictionary dictionaryWithDictionary:taxComputationAPIParams[@"createCartVariables"]];
-    setShippingAddressQuery = taxComputationAPIParams[@"setShippingAddressQuery"];
-    setShippingAddressVariables =  [NSMutableDictionary dictionaryWithDictionary:taxComputationAPIParams[@"setShippingAddressVariables"]];
-    cartId = setShippingAddressVariables[@"cartId"];
+    estimateCartTaxesQuery = taxComputationAPIParams[@"estimateCartTaxesQuery"];
+    estimateCartTaxesVariables =  [NSMutableDictionary dictionaryWithDictionary:taxComputationAPIParams[@"estimateCartTaxesVariables"]];
+    cartId = estimateCartTaxesVariables[@"cartId"];
     
     NSUInteger requiredShippingAddressFields = [self applePayAddressFields:options[@"requiredShippingAddressFields"]];
     NSUInteger requiredBillingAddressFields = [self applePayAddressFields:options[@"requiredBillingAddressFields"]];
@@ -745,10 +745,8 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
  */
 -(void)setShippingAddress:(NSDictionary *)address onCart:(NSString *)cartId{
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
-    setShippingAddressVariables[@"shippingAddress"] = shippingAddress;
-    // backend will not update the database with this partial address with if context variable is present in the payload
-    setShippingAddressVariables[@"context"] = @"TAX_CALCULATION";
-    [self callGraphqlApiWithQuery:setShippingAddressQuery andVariables:setShippingAddressVariables];
+    estimateCartTaxesVariables[@"shippingAddress"] = shippingAddress;
+    [self callGraphqlApiWithQuery:estimateCartTaxesQuery andVariables:estimateCartTaxesVariables];
 }
 
 /**
@@ -801,8 +799,8 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
         NSDictionary *price;
         if(self->cartId.length != 0) {
             // parse setShippingAddressAPIResponse
-            NSDictionary *setShippingAddressResponse = (json[@"data"])[@"setShippingAddress"];
-            price = setShippingAddressResponse[@"price"];
+            NSDictionary *estimateCartTaxesResponse = (json[@"data"])[@"estimateCartTaxes"];
+            price = estimateCartTaxesResponse[@"price"];
         } else {
             // parse twoStepBuyAPIResponse
             NSDictionary *twoStepBuyResponse = (json[@"data"])[@"twoStepBuy"];
