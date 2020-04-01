@@ -122,6 +122,7 @@ UM_EXPORT_METHOD_AS(deviceSupportsApplePay, deviceSupportsApplePay:(UMPromiseRes
     resolve(@([PKPaymentAuthorizationViewController canMakePayments]));
 }
 
+
 /**
  This method udpates taxes in Apple Pay sheet
  */
@@ -134,16 +135,7 @@ UM_EXPORT_METHOD_AS(deviceSupportsApplePay, deviceSupportsApplePay:(UMPromiseRes
     }
     [self updateFinalCostForItems:paymentSummaryItems];
     if (@available(iOS 11.0, *)) {
-        PKPaymentRequestShippingContactUpdate * contactMethodUpdate;
-        if ([selectedShippingContact.postalAddress respondsToSelector:NSSelectorFromString(@"postalCode")]) {
-            if([[selectedShippingContact.postalAddress valueForKey:@"postalCode"] length]  == 5) {
-                contactMethodUpdate = [[PKPaymentRequestShippingContactUpdate alloc] init];
-            }
-            else {
-                // show Error in ApplePay sheet if zip code is not valid
-                contactMethodUpdate   =  [[PKPaymentRequestShippingContactUpdate alloc] initWithErrors:@[[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressPostalCodeKey localizedDescription:@"Zip is formatted incorrectly"]] paymentSummaryItems:paymentSummaryItems shippingMethods:@[]];
-            }
-        }
+        PKPaymentRequestShippingContactUpdate * contactMethodUpdate = [[PKPaymentRequestShippingContactUpdate alloc] init];
         contactMethodUpdate.paymentSummaryItems = paymentSummaryItems;
         updateShippingContactCompletion(contactMethodUpdate);
     }
@@ -459,12 +451,7 @@ UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSAr
     [paymentRequest setPaymentSummaryItems:summaryItems];
     [paymentRequest setShippingMethods:shippingMethods];
     [paymentRequest setShippingType:shippingType];
-    
-    // We set the incoming shipping address on Apple Pay paymentRequest object
-    if([options[@"shippingContact"] count] != 0) {
-        PKContact *contact = [self shippingContact:options[@"shippingContact"]];
-        [paymentRequest setShippingContact:contact];
-    }
+  
     
     if ([Stripe canSubmitPaymentRequest:paymentRequest]) {
         PKPaymentAuthorizationViewController *paymentAuthorizationVC = [[PKPaymentAuthorizationViewController alloc] initWithPaymentRequest:paymentRequest];
@@ -724,6 +711,16 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 }
 
 /**
+ We will not be passing address anymore from the js code -> address management will be done from apple pay , here we will invoke the
+ */
+- (void) updateTaxesBasedOnDefaultShippingAddress {
+    // check if all the selected fields are valid
+    if(self->selectedShippingContact) {
+      NSDictionary *defaultSelectedAdressInApplePay = [self contactDetails:self->selectedShippingContact];
+      [self setShippingAddress:defaultSelectedAdressInApplePay onCart:self->cartId];
+    }
+}
+/**
  This pre-defined delegate method is called every time user changes the shipping address. We simply get the newly selected address(from 'contact' function parameter)and pass it to the react native code via ApplePayEventsManager listener to call API and calculate taxes as per the selected address.
  */
 - (void)paymentAuthorizationViewController:(PKPaymentAuthorizationViewController *)controller
@@ -734,9 +731,10 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     NSDictionary *selectedAddress = [self contactDetails:contact];
     //  Based on whether the cart Id is available or not, call the createCart or SetShippingaAddress method to udpate taxes
     if(cartId.length != 0) {
-        [self setShippingAddress:selectedAddress onCart:cartId];
+      [self setShippingAddress:selectedAddress onCart:cartId];
+      [self updateTaxesBasedOnDefaultShippingAddress];
     } else {
-        [self createCart:selectedAddress];
+      [self createCart:selectedAddress];
     }
 }
 
@@ -746,6 +744,9 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 -(void)setShippingAddress:(NSDictionary *)address onCart:(NSString *)cartId{
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
     estimateCartTaxesVariables[@"shippingAddress"] = shippingAddress;
+    if (cartId && cartId.length != 0){
+      estimateCartTaxesVariables[@"cartId"] = cartId;
+    }
     [self callGraphqlApiWithQuery:estimateCartTaxesQuery andVariables:estimateCartTaxesVariables];
 }
 
@@ -756,6 +757,52 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
     createCartVariables[@"shippingAddress"] = shippingAddress;
     [self callGraphqlApiWithQuery:createCartQuery andVariables:createCartVariables];
+}
+
+/**
+ checks for empty field values in the shipping address
+ */
+-(bool)isInvalid:(NSString *)elemValue {
+  if (!elemValue) return false;
+  return elemValue.length == 0;
+}
+
+/**
+ checks the field values of city , state , postalCode since those are the ones validated by our system
+ for the pricing api and are not obfuscated by apple pay
+ */
+-(void)updateContactMethodFieldErrorsIfAny {
+  NSMutableArray *fieldErrorMessages = [[NSMutableArray alloc]init]; //alloc
+  //check the individual fields for errors
+  NSDictionary *selectedAdressInApplePay = [self contactDetails:self->selectedShippingContact];
+  
+  if ([self isInvalid:selectedAdressInApplePay[@"city"]]){
+    [self updateContactMethodFieldError:CNPostalAddressCityKey errorDescription:@"city cannot be empty"];
+  }
+  
+  if ([self isInvalid:selectedAdressInApplePay[@"state"]]){
+    [self updateContactMethodFieldError:CNPostalAddressStateKey errorDescription:@"state cannot be empty"];
+  }
+  
+  if ([self isInvalid:selectedAdressInApplePay[@"postalCode"]]){
+    [self updateContactMethodFieldError:CNPostalAddressPostalCodeKey errorDescription:@"zip code cannot be empty"];
+  }
+}
+
+-(void)updateContactMethodFieldError:(NSString *)CNContactKey errorDescription:(NSString *) fieldErrorMessage {
+  PKPaymentRequestShippingContactUpdate * contactMethodUpdate = [[PKPaymentRequestShippingContactUpdate alloc] init];
+  contactMethodUpdate   =  [[PKPaymentRequestShippingContactUpdate alloc] initWithErrors:@[[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNContactKey localizedDescription:fieldErrorMessage]] paymentSummaryItems:paymentSummaryItems shippingMethods:@[]];
+  contactMethodUpdate.paymentSummaryItems = paymentSummaryItems;
+  updateShippingContactCompletion(contactMethodUpdate);
+}
+
+/**
+ updates the error from the api in the contact field on apple pay
+ */
+-(void)updateContactMethodErrors: (NSString *)errorMessage {
+    if (@available(iOS 11.0, *)) {
+      [self updateContactMethodFieldErrorsIfAny];
+    }
 }
 
 -(void)callGraphqlApiWithQuery:(NSString *)query andVariables:(NSDictionary *)variables{
@@ -780,19 +827,14 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     NSDictionary *requestData = @{@"query":query,@"variables":variables};
     NSData *postData = [NSJSONSerialization dataWithJSONObject:requestData options:0 error:nil];
     [request setHTTPBody:postData];
+    
     NSURLSessionDataTask *postDataTask = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
         
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
-        // if there are any failures in the api this will be capture in sentry
+        // if there are any failures in the api this will be captured in sentry
         if (error || json[@"errors"]) {
-          [[self getViewController] dismissViewControllerAnimated:YES completion:^{
-               [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
-               [self
-                rejectPromiseWithCode:@""
-                message:[[NSString alloc] initWithData:(error ? error.localizedDescription : data) encoding:NSUTF8StringEncoding]];
-               [self resetPromiseCallbacks];
-               requestIsCompleted = YES;
-             }];
+          NSString *errorMessage = error ? error.localizedDescription : @"Invalid Shipping Address" ;
+          [self updateContactMethodErrors:errorMessage];
           return;
         }
       
@@ -801,14 +843,14 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
             // parse setShippingAddressAPIResponse
             NSDictionary *estimateCartTaxesResponse = (json[@"data"])[@"estimateCartTaxes"];
             price = estimateCartTaxesResponse[@"price"];
+            NSNumber *tax = [NSNumber numberWithFloat:([ (price[@"taxedPrice"] == [NSNull null] ? price[@"totalPrice"]: price[@"taxedPrice"]) floatValue]- [ price[@"totalPrice"] floatValue])/100];
+            [self updateTaxes:tax];
         } else {
             // parse twoStepBuyAPIResponse
             NSDictionary *twoStepBuyResponse = (json[@"data"])[@"twoStepBuy"];
             self->cartId = twoStepBuyResponse[@"id"];
-            price = twoStepBuyResponse[@"price"];
+            [self updateTaxesBasedOnDefaultShippingAddress];
         }
-        NSNumber *tax = [NSNumber numberWithFloat:([ (price[@"taxedPrice"] == [NSNull null] ? price[@"totalPrice"]: price[@"taxedPrice"]) floatValue]- [ price[@"totalPrice"] floatValue])/100];
-        [self updateTaxes:tax];
     }];
     
     [postDataTask resume];
@@ -1153,7 +1195,6 @@ API_AVAILABLE(ios(11.0)){
 
 - (NSDictionary *)contactDetails:(PKContact*)inputContact {
     NSMutableDictionary *contactDetails = [[NSMutableDictionary alloc] init];
-    
     if (inputContact.name) {
         [contactDetails setValue:[NSPersonNameComponentsFormatter localizedStringFromPersonNameComponents:inputContact.name style:NSPersonNameComponentsFormatterStyleDefault options:0] forKey:@"name"];
     }
@@ -1383,3 +1424,4 @@ API_AVAILABLE(ios(11.0)){
 }
 
 @end
+
