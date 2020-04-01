@@ -771,37 +771,50 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
  checks the field values of city , state , postalCode since those are the ones validated by our system
  for the pricing api and are not obfuscated by apple pay
  */
--(void)updateContactMethodFieldErrorsIfAny {
-  NSMutableArray *fieldErrorMessages = [[NSMutableArray alloc]init]; //alloc
+-(NSArray *)updateContactMethodFieldErrorsIfAny {
+  NSMutableArray *fieldErrors = [[NSMutableArray alloc]init]; //alloc
   //check the individual fields for errors
   NSDictionary *selectedAdressInApplePay = [self contactDetails:self->selectedShippingContact];
   
+  if (selectedAdressInApplePay[@"ISOCountryCode"] != @"US"){
+    [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressCountryKey localizedDescription:@"select country as united states"]];
+  }
+  
   if ([self isInvalid:selectedAdressInApplePay[@"city"]]){
-    [self updateContactMethodFieldError:CNPostalAddressCityKey errorDescription:@"city cannot be empty"];
+    [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressCityKey localizedDescription:@"city cannot be empty"]];
   }
   
   if ([self isInvalid:selectedAdressInApplePay[@"state"]]){
-    [self updateContactMethodFieldError:CNPostalAddressStateKey errorDescription:@"state cannot be empty"];
+    [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressStateKey localizedDescription:@"state cannot be empty"]];
   }
   
-  if ([self isInvalid:selectedAdressInApplePay[@"postalCode"]]){
-    [self updateContactMethodFieldError:CNPostalAddressPostalCodeKey errorDescription:@"zip code cannot be empty"];
+  if([[selectedAdressInApplePay valueForKey:@"postalCode"] length] < 5) {
+    [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressPostalCodeKey localizedDescription:@"zip code invalid"]];
   }
+  
+  return fieldErrors;
+  
 }
 
--(void)updateContactMethodFieldError:(NSString *)CNContactKey errorDescription:(NSString *) fieldErrorMessage {
+-(void)updateContactMethodFieldError:(NSArray <NSError *> *) fieldErrors {
   PKPaymentRequestShippingContactUpdate * contactMethodUpdate = [[PKPaymentRequestShippingContactUpdate alloc] init];
-  contactMethodUpdate   =  [[PKPaymentRequestShippingContactUpdate alloc] initWithErrors:@[[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNContactKey localizedDescription:fieldErrorMessage]] paymentSummaryItems:paymentSummaryItems shippingMethods:@[]];
+  contactMethodUpdate   =  [[PKPaymentRequestShippingContactUpdate alloc] initWithErrors:fieldErrors paymentSummaryItems:paymentSummaryItems shippingMethods:@[]];
   contactMethodUpdate.paymentSummaryItems = paymentSummaryItems;
   updateShippingContactCompletion(contactMethodUpdate);
 }
 
 /**
- updates the error from the api in the contact field on apple pay
+ updates the error from the api in the contact field on apple pay, overrides the error message with field level error messages if any
  */
 -(void)updateContactMethodErrors: (NSString *)errorMessage {
     if (@available(iOS 11.0, *)) {
-      [self updateContactMethodFieldErrorsIfAny];
+      NSArray <NSError *> *errors = [self updateContactMethodFieldErrorsIfAny];
+      if (errors.count > 0) {
+        [self updateContactMethodFieldError: errors];
+      }else {
+        const NSError *errorFromApi = [PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressPropertyAttribute localizedDescription:errorMessage];
+        [self updateContactMethodFieldError: @[errorFromApi]];
+      }
     }
 }
 
