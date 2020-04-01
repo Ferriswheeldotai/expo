@@ -776,10 +776,6 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
   //check the individual fields for errors
   NSDictionary *selectedAdressInApplePay = [self contactDetails:self->selectedShippingContact];
   
-  if (selectedAdressInApplePay[@"ISOCountryCode"] != @"US"){
-    [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressCountryKey localizedDescription:@"select country as united states"]];
-  }
-  
   if ([self isInvalid:selectedAdressInApplePay[@"city"]]){
     [fieldErrors addObject:[PKPaymentRequest paymentShippingAddressInvalidErrorWithKey:CNPostalAddressCityKey localizedDescription:@"city cannot be empty"]];
   }
