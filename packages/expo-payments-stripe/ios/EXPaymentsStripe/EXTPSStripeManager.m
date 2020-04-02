@@ -710,6 +710,7 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     [[self getViewController] dismissViewControllerAnimated:YES completion:completion];
 }
 
+
 /**
  We will not be passing address anymore from the js code -> address management will be done from apple pay , here we will invoke the
  */
@@ -717,7 +718,7 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     // check if all the selected fields are valid
     if(self->selectedShippingContact) {
       NSDictionary *defaultSelectedAdressInApplePay = [self contactDetails:self->selectedShippingContact];
-      [self setShippingAddress:defaultSelectedAdressInApplePay onCart:self->cartId];
+      [self estimateTaxes:defaultSelectedAdressInApplePay onCart:self->cartId];
     }
 }
 /**
@@ -731,7 +732,7 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     NSDictionary *selectedAddress = [self contactDetails:contact];
     //  Based on whether the cart Id is available or not, call the createCart or SetShippingaAddress method to udpate taxes
     if(cartId.length != 0) {
-      [self setShippingAddress:selectedAddress onCart:cartId];
+      [self estimateTaxes:selectedAddress onCart:cartId];
       [self updateTaxesBasedOnDefaultShippingAddress];
     } else {
       [self createCart:selectedAddress];
@@ -741,13 +742,13 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 /**
  This method makes a graphql api call to set address selected in ApplePay on the specified cartId
  */
--(void)setShippingAddress:(NSDictionary *)address onCart:(NSString *)cartId{
+-(void)estimateTaxes:(NSDictionary *)address onCart:(NSString *)cartId{
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
     estimateCartTaxesVariables[@"shippingAddress"] = shippingAddress;
     if (cartId && cartId.length != 0){
       estimateCartTaxesVariables[@"cartId"] = cartId;
     }
-    [self callGraphqlApiWithQuery:estimateCartTaxesQuery andVariables:estimateCartTaxesVariables];
+    [self callGraphqlApiWithQuery:estimateCartTaxesQuery showAlertOnError:false andVariables:estimateCartTaxesVariables];
 }
 
 /**
@@ -756,7 +757,7 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 -(void)createCart:(NSDictionary *)address {
     NSDictionary *shippingAddress = @{@"postalCode":address[@"postalCode"],@"city":address[@"city"],@"state":address[@"state"],@"country":@"US"};
     createCartVariables[@"shippingAddress"] = shippingAddress;
-    [self callGraphqlApiWithQuery:createCartQuery andVariables:createCartVariables];
+    [self callGraphqlApiWithQuery:createCartQuery showAlertOnError:true andVariables:createCartVariables];
 }
 
 /**
@@ -814,7 +815,21 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     }
 }
 
--(void)callGraphqlApiWithQuery:(NSString *)query andVariables:(NSDictionary *)variables{
+/**
+ method will throw the error to the react native brige so that the js layer can take control of how to display
+ it
+ */
+
+-(void)displayErrorAlert: (NSException *) exception {
+  [[self getViewController] dismissViewControllerAnimated:YES completion:^{
+    [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
+    [self rejectPromiseWithCode:exception.name message:exception.reason];
+    [self resetPromiseCallbacks];
+    requestIsCompleted = YES;
+  }];
+}
+
+-(void)callGraphqlApiWithQuery:(NSString *)query showAlertOnError:(bool)displayAlert andVariables:(NSDictionary *)variables{
     NSURLSessionConfiguration *configuration = [NSURLSessionConfiguration defaultSessionConfiguration];
     NSURLSession *session = [NSURLSession sessionWithConfiguration:configuration delegate:nil delegateQueue:nil];
     NSURL *url = [NSURL URLWithString:graphqlGatewayUrl];
@@ -838,12 +853,20 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
     [request setHTTPBody:postData];
     
     NSURLSessionDataTask *postDataTask = [session dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
-        
         NSDictionary *json = [NSJSONSerialization JSONObjectWithData:data options:NSJSONReadingAllowFragments error:nil];
-        // if there are any failures in the api this will be captured in sentry
+
         if (error || json[@"errors"]) {
-          NSString *errorMessage = error ? error.localizedDescription : @"Invalid Shipping Address" ;
-          [self updateContactMethodErrors:errorMessage];
+          // exact errors will be captured by sentry
+          NSString *defaultErrorMessage = displayAlert ? @"createCart service failed" : @"Invalid Shipping Address" ;
+          NSDictionary *firstError = [json[@"errors"] firstObject];
+          NSString *errorMessage = firstError ? [firstError objectForKey:@"message"] : defaultErrorMessage;
+          if (displayAlert){
+            //extracting the message from the api
+            NSException *exceptionFromService = [NSException exceptionWithName:@"service failed" reason:errorMessage userInfo:@{}];
+            [self displayErrorAlert:exceptionFromService];
+          }else {
+            [self updateContactMethodErrors:defaultErrorMessage];
+          }
           return;
         }
       
