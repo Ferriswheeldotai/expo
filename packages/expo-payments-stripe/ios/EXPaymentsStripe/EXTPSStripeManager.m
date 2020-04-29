@@ -24,6 +24,7 @@ NSString * const kErrorKeyNoPaymentRequest = @"noPaymentRequest";
 NSString * const kErrorKeyNoMerchantIdentifier = @"noMerchantIdentifier";
 NSString * const kErrorKeyNoAmount = @"noAmount";
 NSString * const kSalesTaxLabel = @"SALES TAX";
+NSString * const kCreditsLabel = @"CREDITS USED";
 
 API_AVAILABLE(ios(11.0))
 //  We define a new type whose reference is going to hold the completion block received in 'didSelectShippingContact' delegate method. This block is called after new taxes are received from React native code in 'updateTaxes' method in order to reflect them in apple pay sheet.
@@ -76,6 +77,7 @@ NSString * const TPSPaymentNetworkVisa = @"visa";
     
     NSString *estimateCartTaxesQuery;
     NSMutableDictionary *estimateCartTaxesVariables;
+    NSDecimalNumber *creditBalance;
 }
 
 - (instancetype)init {
@@ -414,6 +416,8 @@ UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSAr
     estimateCartTaxesQuery = taxComputationAPIParams[@"estimateCartTaxesQuery"];
     estimateCartTaxesVariables =  [NSMutableDictionary dictionaryWithDictionary:taxComputationAPIParams[@"estimateCartTaxesVariables"]];
     cartId = estimateCartTaxesVariables[@"cartId"];
+    self->creditBalance = [NSDecimalNumber decimalNumberWithString:taxComputationAPIParams[@"creditBalance"]];
+
     
     NSUInteger requiredShippingAddressFields = [self applePayAddressFields:options[@"requiredShippingAddressFields"]];
     NSUInteger requiredBillingAddressFields = [self applePayAddressFields:options[@"requiredBillingAddressFields"]];
@@ -493,6 +497,31 @@ UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSAr
 }
 
 /**
+This method takes in all the summary items of PKPaymentSummaryItem type, iterates through each item to find the credits item and updates the applied credit based on the final cost
+@param items array of PKPaymentSummaryItem objects
+*/
+-(void)updateCreditsUsed:(NSArray *)items {
+  // find PKPaymentSummary item corresponding to credits
+  PKPaymentSummaryItem *credits = NULL;
+  for (int i = 0; i < [items count] - 1; i++) {
+    PKPaymentSummaryItem *item = items[i];
+    if ([item.label isEqualToString:kCreditsLabel]){
+      credits = item;
+    }
+  }
+  PKPaymentSummaryItem *finalTotalItem = [items lastObject];
+  if ([self->creditBalance compare:finalTotalItem.amount] == NSOrderedAscending) {
+    credits.amount = self->creditBalance;
+  }
+  if ([self->creditBalance compare:finalTotalItem.amount] == NSOrderedDescending) {
+    credits.amount = finalTotalItem.amount;
+  }
+  if ([self->creditBalance compare:finalTotalItem.amount] == NSOrderedSame) {
+    credits.amount = finalTotalItem.amount;
+  }
+}
+
+/**
  This method takes in all the summary items of PKPaymentSummaryItem type, iterates through each item except last one(i.e. for final cost) and add them all in order to calculate the final cost. Final cost is then updated in the last summary item.
  
  @param items array of PKPaymentSummaryItem objects
@@ -501,10 +530,14 @@ UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSAr
     NSDecimalNumber *finalTotal = [NSDecimalNumber decimalNumberWithDecimal:[[NSNumber numberWithFloat:0.0] decimalValue]];
     for (int i = 0; i < [items count] - 1; i++) {
         PKPaymentSummaryItem *item = items[i];
+        if ([item.label isEqualToString:kCreditsLabel]){
+          continue;
+        }
         finalTotal = [finalTotal decimalNumberByAdding:item.amount];
     }
     PKPaymentSummaryItem *finalTotalItem = [items lastObject];
     finalTotalItem.amount = finalTotal;
+    [self updateCreditsUsed:items];
 }
 
 -(PKContact *)shippingContact:(NSDictionary *)address {
@@ -671,7 +704,15 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
                                     };
             
             [result setValue:extra forKey:@"extra"];
+            // GROW-63: add paymentInfo to the response from apple pay
+            NSMutableDictionary *paymentInfo = [@{} mutableCopy];
+            if (@available(iOS 11.0, *)) {
+              for (PKPaymentSummaryItem *item in paymentSummaryItems) {
+                [paymentInfo setObject:item.amount forKey:item.label];
+              }
+            }
             
+            [result setValue:paymentInfo forKey:@"paymentInfo"];
             [self resolvePromise:result];
         }
     }];
