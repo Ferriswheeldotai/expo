@@ -340,48 +340,6 @@ UM_EXPORT_METHOD_AS(createSourceWithParams, createSourceWithParams:(NSDictionary
     }];
 }
 
-UM_EXPORT_METHOD_AS(paymentRequestWithCardForm, paymentRequestWithCardForm:(NSDictionary *)options
-                    resolver:(UMPromiseResolveBlock)resolve
-                    rejecter:(UMPromiseRejectBlock)reject) {
-    if(!requestIsCompleted) {
-        NSDictionary *error = [errorCodes valueForKey:kErrorKeyBusy];
-        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
-        return;
-    }
-    
-    requestIsCompleted = NO;
-    // Save promise handlers to use in `paymentAuthorizationViewController`
-    promiseResolver = resolve;
-    promiseRejector = reject;
-    
-    NSUInteger requiredBillingAddressFields = [self billingType:options[@"requiredBillingAddressFields"]];
-    NSString *companyName = options[@"companyName"] ? options[@"companyName"] : @"";
-    STPUserInformation *prefilledInformation = [self userInformation:options[@"prefilledInformation"]];
-    NSString *managedAccountCurrency = options[@"managedAccountCurrency"];
-    NSString *nextPublishableKey = options[@"publishableKey"] ? options[@"publishableKey"] : publishableKey;
-    UIModalPresentationStyle formPresentation = [self formPresentation:options[@"presentation"]];
-    STPTheme *theme = [self formTheme:options[@"theme"]];
-    
-    STPPaymentConfiguration *configuration = [[STPPaymentConfiguration alloc] init];
-    [configuration setRequiredBillingAddressFields:requiredBillingAddressFields];
-    [configuration setCompanyName:companyName];
-    [configuration setPublishableKey:nextPublishableKey];
-    
-    [configuration setCreateCardSources:[options[@"createCardSource"] boolValue]];
-    
-    
-    STPAddCardViewController *addCardViewController = [[STPAddCardViewController alloc] initWithConfiguration:configuration theme:theme];
-    [addCardViewController setDelegate:self];
-    [addCardViewController setPrefilledInformation:prefilledInformation];
-    [addCardViewController setManagedAccountCurrency:managedAccountCurrency];
-    // STPAddCardViewController must be shown inside a UINavigationController.
-    UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:addCardViewController];
-    [navigationController setModalPresentationStyle:formPresentation];
-    navigationController.navigationBar.stp_theme = theme;
-    [[self getViewController] presentViewController:navigationController animated:YES completion:nil];
-}
-
-
 UM_EXPORT_METHOD_AS(paymentRequestWithApplePay, paymentRequestWithApplePay:(NSArray *)items
                     withOptions:(NSDictionary *)options
                     resolver:(UMPromiseResolveBlock)resolve
