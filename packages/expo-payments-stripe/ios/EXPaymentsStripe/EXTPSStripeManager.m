@@ -822,7 +822,8 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 -(void)displayErrorAlert: (NSException *) exception {
   [[self getViewController] dismissViewControllerAnimated:YES completion:^{
     [self resolveApplePayCompletion:PKPaymentAuthorizationStatusFailure];
-    [self rejectPromiseWithCode:exception.name message:exception.reason];
+    NSString *modifiedMessage = [NSString stringWithFormat:@"{\"graphQLErrors\": [{\"message\": %@}]}", exception.reason];
+    [self rejectPromiseWithCode:exception.name message:modifiedMessage];
     [self resetPromiseCallbacks];
     requestIsCompleted = YES;
   }];
