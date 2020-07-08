@@ -857,11 +857,10 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
         if (error || json[@"errors"]) {
           // exact errors will be captured by sentry
           NSString *defaultErrorMessage = displayAlert ? @"createCart service failed" : @"Invalid Shipping Address" ;
-          NSDictionary *firstError = [json[@"errors"] firstObject];
-          NSString *errorMessage = firstError ? [firstError objectForKey:@"message"] : defaultErrorMessage;
+          NSArray *firstError = @[json[@"errors"]];
           if (displayAlert){
             //extracting the message from the api
-            NSException *exceptionFromService = [NSException exceptionWithName:@"service failed" reason:errorMessage userInfo:@{}];
+            NSException *exceptionFromService = [NSException exceptionWithName:@"service failed" reason:firstError userInfo:@{}];
             [self displayErrorAlert:exceptionFromService];
           }else {
             [self updateContactMethodErrors:defaultErrorMessage];
