@@ -17,7 +17,7 @@ Pod::Spec.new do |s|
   s.requires_arc   = true
 
   s.dependency 'UMCore'
-  s.dependency 'Stripe', '~> 19.0.1'
+  s.dependency 'Stripe', '~> 20.0.0'
   s.dependency 'React'
 
 end

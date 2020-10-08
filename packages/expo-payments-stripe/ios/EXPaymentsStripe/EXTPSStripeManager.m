@@ -24,7 +24,7 @@ NSString * const kErrorKeyNoPaymentRequest = @"noPaymentRequest";
 NSString * const kErrorKeyNoMerchantIdentifier = @"noMerchantIdentifier";
 NSString * const kErrorKeyNoAmount = @"noAmount";
 NSString * const kSalesTaxLabel = @"SALES TAX";
-NSString * const kCreditsLabel = @"CREDITS USED";
+NSString * const kCreditsLabel = @"THE YES CREDIT";
 
 API_AVAILABLE(ios(11.0))
 //  We define a new type whose reference is going to hold the completion block received in 'didSelectShippingContact' delegate method. This block is called after new taxes are received from React native code in 'updateTaxes' method in order to reflect them in apple pay sheet.
@@ -477,6 +477,7 @@ This method takes in all the summary items of PKPaymentSummaryItem type, iterate
   if ([self->creditBalance compare:finalTotalItem.amount] == NSOrderedSame) {
     credits.amount = finalTotalItem.amount;
   }
+  finalTotalItem.amount = [finalTotalItem.amount decimalNumberBySubtracting:credits.amount];
 }
 
 /**
@@ -574,30 +575,6 @@ UM_EXPORT_METHOD_AS(openApplePaySetup, openApplePaySetup:(UMPromiseResolveBlock)
 
 - (void)resetApplePayCallback {
     applePayCompletion = nil;
-}
-
-- (BOOL)canSubmitPaymentRequest:(PKPaymentRequest *)paymentRequest rejecter:(UMPromiseRejectBlock)reject {
-    if (![Stripe deviceSupportsApplePay]) {
-        NSDictionary *error = [errorCodes valueForKey:kErrorKeyDeviceNotSupportsNativePay];
-        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
-        return NO;
-    }
-    if (paymentRequest == nil) {
-        NSDictionary *error = [errorCodes valueForKey:kErrorKeyNoPaymentRequest];
-        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
-        return NO;
-    }
-    if (paymentRequest.merchantIdentifier == nil) {
-        NSDictionary *error = [errorCodes valueForKey:kErrorKeyNoMerchantIdentifier];
-        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
-        return NO;
-    }
-    if ([[[paymentRequest.paymentSummaryItems lastObject] amount] floatValue] == 0) {
-        NSDictionary *error = [errorCodes valueForKey:kErrorKeyNoAmount];
-        reject(error[kErrorKeyCode], error[kErrorKeyDescription], nil);
-        return NO;
-    }
-    return YES;
 }
 
 #pragma mark - STPAddCardViewControllerDelegate
