@@ -467,6 +467,9 @@ This method takes in all the summary items of PKPaymentSummaryItem type, iterate
       credits = item;
     }
   }
+  if (credits == NULL) {
+    return;
+  }
   PKPaymentSummaryItem *finalTotalItem = [items lastObject];
   if ([self->creditBalance compare:finalTotalItem.amount] == NSOrderedAscending) {
     credits.amount = self->creditBalance;
