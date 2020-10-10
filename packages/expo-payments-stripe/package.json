@@ -1,6 +1,6 @@
 {
   "name": "@ferriswheel/expo-payments-stripe",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Expo Payments Module - Ferriswheel Fork",
   "main": "index.js",
   "files": [
